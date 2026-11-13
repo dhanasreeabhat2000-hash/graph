@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fleury's Algorithm Visualizer</title>
+<style>
+  :root{
+    --bg:#f5f4ef; --panel:#ffffff; --ink:#1d1f24; --muted:#6b6f78; --line:#e3e1da;
+    --vertex:#3b4a8c; --current:#f2780c; --start:#f2780c;
+    --ok:#1f9d55; --bad:#d64045; --done:#9aa3b5; --edge:#2b2f38;
+    --radius:12px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,sans-serif;font-size:15px}
+  header{padding:18px 24px 6px;display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 16px}
+  header h1{margin:0;font-size:1.45rem;letter-spacing:-.01em}
+  header p{margin:0;color:var(--muted)}
+  main{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:16px;padding:12px 24px 24px}
+  @media (max-width:980px){main{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}
+  .panel h2{margin:0 0 10px;font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+  .stack{display:flex;flex-direction:column;gap:16px}
+
+  /* canvas */
+  #stage{position:relative;padding:0;overflow:hidden}
+  #toolbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line)}
+  #toolbar .sep{width:1px;height:24px;background:var(--line);margin:0 4px}
+  svg#g{display:block;width:100%;height:auto;aspect-ratio:800/520;background:
+      radial-gradient(circle,#e7e5de 1px,transparent 1px) 0 0/22px 22px;touch-action:none;user-select:none}
+  #hint{position:absolute;left:12px;bottom:10px;font-size:.82rem;color:var(--muted);background:#fffc;padding:3px 8px;border-radius:6px}
+  #banner{position:absolute;left:50%;top:62px;transform:translateX(-50%);padding:8px 16px;border-radius:999px;
+      font-weight:600;font-size:.92rem;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap}
+  #banner.show{opacity:1}
+  #banner.ok{background:#e3f5ea;color:#11643a} #banner.bad{background:#fbe5e6;color:#9b2226} #banner.info{background:#fff1e3;color:#8a4300}
+
+  button,select{font:inherit;font-size:.88rem;border:1px solid #cfccc3;background:#fff;color:var(--ink);
+      border-radius:8px;padding:6px 11px;cursor:pointer}
+  button:hover:not(:disabled){background:#f3f2ed}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.mode.active{background:var(--vertex);color:#fff;border-color:var(--vertex)}
+  button.primary{background:var(--current);color:#fff;border-color:#c85f05}
+  button.primary:hover:not(:disabled){background:#de6a06}
+  .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  label.small{font-size:.85rem;color:var(--muted);display:flex;gap:8px;align-items:center}
+  input[type=range]{accent-color:var(--current)}
+
+  /* svg elements */
+  .e{stroke:var(--edge);stroke-width:3;stroke-linecap:round;transition:stroke .25s,stroke-width .25s,opacity .25s}
+  .e.used{stroke:var(--done);stroke-width:2.5;opacity:.55;stroke-dasharray:6 6}
+  .e.cand-ok{stroke:var(--ok);stroke-width:5}
+  .e.cand-bridge{stroke:var(--bad);stroke-width:5;stroke-dasharray:10 7}
+  .e.chosen{stroke:var(--ok);stroke-width:7;filter:drop-shadow(0 0 5px #1f9d5588)}
+  .e.pending{stroke:#9a8f6a;stroke-dasharray:4 5}
+  .ehit{stroke:transparent;stroke-width:18;cursor:pointer}
+  .badge circle{fill:#fff;stroke:var(--done);stroke-width:1.5}
+  .badge text{font-size:12px;font-weight:700;fill:#4a5263;text-anchor:middle;dominant-baseline:central}
+  .tag{font-size:11.5px;font-weight:700;text-anchor:middle;dominant-baseline:central;paint-order:stroke;stroke:#fff;stroke-width:4px}
+  .tag.ok{fill:var(--ok)} .tag.bad{fill:var(--bad)}
+  .v circle.body{fill:var(--vertex);stroke:#fff;stroke-width:3;transition:fill .25s}
+  .v text.lbl{fill:#fff;font-weight:700;font-size:15px;text-anchor:middle;dominant-baseline:central;pointer-events:none}
+  .v.current circle.body{fill:var(--current)}
+  .v.sel circle.body{fill:#7a5cff}
+  .v circle.ring{fill:none;stroke:var(--start);stroke-width:2.5;stroke-dasharray:5 4}
+  .v .deg{font-size:11px;fill:var(--muted);font-weight:600;text-anchor:middle;pointer-events:none;paint-order:stroke;stroke:#f5f4ef;stroke-width:4px}
+  .v .deg.odd{fill:var(--bad)}
+  .v{cursor:grab}
+  .pulse{fill:none;stroke:var(--current);stroke-width:3;animation:pulse 1.4s ease-out infinite}
+  @keyframes pulse{0%{r:22;opacity:.9}100%{r:38;opacity:0}}
+
+  /* sidebar */
+  #verdict{font-weight:600;margin-top:6px}
+  #verdict.ok{color:var(--ok)} #verdict.bad{color:var(--bad)}
+  table.deg{border-collapse:collapse;width:100%;font-size:.86rem;margin-top:8px}
+  table.deg td,table.deg th{padding:3px 6px;text-align:center;border-bottom:1px solid var(--line)}
+  table.deg th{color:var(--muted);font-weight:600}
+  td.odd{color:var(--bad);font-weight:700}
+  #path{display:flex;flex-wrap:wrap;gap:4px;align-items:center;min-height:30px;font-weight:600}
+  #path .chip{background:#eef0f7;color:var(--vertex);border-radius:6px;padding:2px 8px}
+  #path .chip.now{background:var(--current);color:#fff}
+  #path .arr{color:var(--muted)}
+  #pseudo{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.82rem;line-height:1.55;margin:0}
+  #pseudo div{padding:1px 8px;border-left:3px solid transparent;border-radius:3px;white-space:pre-wrap}
+  #pseudo div.hl{background:#fff1e3;border-left-color:var(--current)}
+  #log{max-height:260px;overflow:auto;font-size:.86rem;line-height:1.45;display:flex;flex-direction:column;gap:6px}
+  #log .entry{padding:6px 8px;border-radius:8px;background:#f7f6f2}
+  #log .entry.last{background:#fff1e3}
+  #log b.ok{color:var(--ok)} #log b.bad{color:var(--bad)}
+  .legend{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;font-size:.84rem;align-items:center}
+  .legend svg{width:38px;height:12px}
+  details summary{cursor:pointer;color:var(--muted);font-size:.86rem}
+  .theory{font-size:.88rem;line-height:1.5;color:#33363d}
+  .theory p{margin:.4em 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>Fleury's Algorithm</h1>
+  <p>Find an Euler path or circuit by never crossing a bridge unless it is the only way out.</p>
+</header>
+
+<main>
+  <section class="stack">
+    <div class="panel" id="stage">
+      <div id="toolbar">
+        <select id="preset" title="Load an example graph">
+          <option value="">Load example…</option>
+          <option value="bridge">Two triangles + bridge (Euler path)</option>
+          <option value="house">House / envelope (Euler path)</option>
+          <option value="bowtie">Bow-tie (Euler circuit)</option>
+          <option value="k5">Complete graph K5 (Euler circuit)</option>
+          <option value="k7">K7 with labels 22–28 (Euler circuit)</option>
+          <option value="k4">Complete graph K4 (not Eulerian)</option>
+          <option value="empty">Empty canvas</option>
+        </select>
+        <span class="sep"></span>
+        <button class="mode active" data-mode="move" title="Drag vertices">Move</button>
+        <button class="mode" data-mode="vertex" title="Click empty space to add a vertex">+ Vertex</button>
+        <button class="mode" data-mode="edge" title="Click two vertices to join them">+ Edge</button>
+        <button class="mode" data-mode="delete" title="Click a vertex or edge to delete it">Delete</button>
+      </div>
+      <svg id="g" viewBox="0 0 800 520" aria-label="Graph canvas">
+        <g id="edgesL"></g><g id="tagsL"></g><g id="nodesL"></g>
+      </svg>
+      <div id="banner"></div>
+      <div id="hint">Drag vertices to rearrange</div>
+    </div>
+
+    <div class="panel">
+      <h2>Algorithm controls</h2>
+      <div class="row">
+        <label class="small">Start vertex <select id="startSel"></select></label>
+        <button id="btnStart" class="primary">Start</button>
+        <button id="btnStep" disabled>Next step ▶</button>
+        <button id="btnPlay" disabled>▶ Auto play</button>
+        <button id="btnReset" disabled>Reset</button>
+        <label class="small">Speed <input id="speed" type="range" min="0.5" max="3" step="0.5" value="1"></label>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Euler path so far</h2>
+      <div id="path"><span style="color:var(--muted);font-weight:400">Press Start to begin.</span></div>
+    </div>
+  </section>
+
+  <aside class="stack">
+    <div class="panel">
+      <h2>1 · Is the graph Eulerian?</h2>
+      <div id="checkText"></div>
+      <div id="verdict"></div>
+      <table class="deg" id="degTable"></table>
+    </div>
+
+    <div class="panel">
+      <h2>2 · Pseudocode</h2>
+      <div id="pseudo"></div>
+    </div>
+
+    <div class="panel">
+      <h2>3 · What's happening</h2>
+      <div id="log"><div class="entry">Load an example or draw your own graph, then press <b>Start</b>.</div></div>
+    </div>
+
+    <div class="panel">
+      <h2>Legend</h2>
+      <div class="legend">
+        <svg><circle cx="19" cy="6" r="5.5" fill="#f2780c"/></svg><span>Current vertex</span>
+        <svg><line x1="2" y1="6" x2="36" y2="6" stroke="#1f9d55" stroke-width="4"/></svg><span>Safe edge (not a bridge)</span>
+        <svg><line x1="2" y1="6" x2="36" y2="6" stroke="#d64045" stroke-width="4" stroke-dasharray="7 5"/></svg><span>Bridge: avoid if possible</span>
+        <svg><line x1="2" y1="6" x2="36" y2="6" stroke="#9aa3b5" stroke-width="3" stroke-dasharray="5 5"/></svg><span>Already used (numbered)</span>
+      </div>
+      <details style="margin-top:10px">
+        <summary>About the algorithm</summary>
+        <div class="theory">
+          <p><b>Euler path:</b> uses every edge exactly once. <b>Euler circuit:</b> an Euler path that ends where it started.</p>
+          <p>A connected graph has an Euler circuit if every vertex has even degree, and an Euler path if exactly two vertices have odd degree (start at one of them).</p>
+          <p><b>Bridge:</b> an edge whose removal disconnects the remaining graph. Fleury's rule: never cross a bridge unless no other edge is left at the current vertex.</p>
+          <p>A bridge is detected by counting the vertices reachable from <i>u</i> before and after removing edge <i>u–v</i>. Fewer reachable means it is a bridge. Overall time is O(E²).</p>
+        </div>
+      </details>
+    </div>
+  </aside>
+</main>
+
+<script>
+(() => {
+"use strict";
+const NS = "http://www.w3.org/2000/svg";
+const $ = id => document.getElementById(id);
+const svg = $("g"), Ledges = $("edgesL"), Ltags = $("tagsL"), Lnodes = $("nodesL");
+
+/* ---------------- Graph model ---------------- */
+let nodes = [], edges = [], nid = 0, eid = 0;
+const nodeById = id => nodes.find(n => n.id === id);
+const nextLabel = () => {
+  const used = new Set(nodes.map(n => n.label));
+  for (let i = 0; ; i++) {
+    let s = "", k = i;
+    do { s = String.fromCharCode(65 + k % 26) + s; k = Math.floor(k / 26) - 1; } while (k >= 0);
+    if (!used.has(s)) return s;
+  }
+};
+function addNode(x, y, label) { const n = { id: nid++, x, y, label: label ?? nextLabel() }; nodes.push(n); return n; }
+function hasEdge(u, v) { return edges.some(e => (e.u === u && e.v === v) || (e.u === v && e.v === u)); }
+function addEdge(u, v) { if (u === v || hasEdge(u, v)) return null; const e = { id: eid++, u, v }; edges.push(e); return e; }
+const other = (e, x) => e.u === x ? e.v : e.u;
+
+function loadPreset(name) {
+  nodes = []; edges = []; nid = 0; eid = 0;
+  const L = (lbls, coords) => lbls.split("").map((c, i) => addNode(coords[i][0], coords[i][1], c));
+  const E = (ns, pairs) => pairs.split(" ").forEach(p => addEdge(ns[p.charCodeAt(0) - 65].id, ns[p.charCodeAt(1) - 65].id));
+  const ring = (count, r, labels, rot = 90) => {
+    const out = [];
+    for (let i = 0; i < count; i++) {
+      const a = (rot - i * 360 / count) * Math.PI / 180;
+      out.push(addNode(400 + r * Math.cos(a), 265 - r * Math.sin(a), labels ? labels[i] : undefined));
+    }
+    for (let i = 0; i < count; i++) for (let j = i + 1; j < count; j++) addEdge(out[i].id, out[j].id);
+    return out;
+  };
+  if (name === "bridge") {
+    const n = L("ABCDEF", [[140,110],[140,410],[320,260],[480,260],[660,110],[660,410]]);
+    E(n, "AB AC BC CD DE DF EF");
+  } else if (name === "house") {
+    const n = L("ABCDE", [[260,440],[540,440],[540,230],[260,230],[400,80]]);
+    E(n, "AB BC CD DA AC BD DE CE");
+  } else if (name === "bowtie") {
+    const n = L("ABCDE", [[180,100],[180,420],[400,260],[620,100],[620,420]]);
+    E(n, "AB AC BC CD CE DE");
+  } else if (name === "k5") ring(5, 200);
+  else if (name === "k7") ring(7, 215, ["22","23","24","25","26","27","28"]);
+  else if (name === "k4") ring(4, 190, null, 45);
+  resetAlgo(); render(); updateCheck(); fillStart();
+}
+
+/* ---------------- Graph helpers ---------------- */
+function degreeIn(v, edgeSet) { let d = 0; for (const e of edgeSet) if (e.u === v || e.v === v) d++; return d; }
+function reachCount(start, edgeList) {
+  const adj = new Map();
+  for (const e of edgeList) {
+    (adj.get(e.u) || adj.set(e.u, []).get(e.u)).push(e.v);
+    (adj.get(e.v) || adj.set(e.v, []).get(e.v)).push(e.u);
+  }
+  const seen = new Set([start]), st = [start];
+  while (st.length) { const x = st.pop(); for (const y of adj.get(x) || []) if (!seen.has(y)) { seen.add(y); st.push(y); } }
+  return seen.size;
+}
+function analyse() {
+  const odd = nodes.filter(n => degreeIn(n.id, edges) % 2 === 1);
+  const withEdges = nodes.filter(n => degreeIn(n.id, edges) > 0);
+  let connected = true;
+  if (withEdges.length) connected = reachCount(withEdges[0].id, edges) === withEdges.length;
+  let type = "none";
+  if (edges.length && connected) type = odd.length === 0 ? "circuit" : odd.length === 2 ? "path" : "none";
+  return { odd, withEdges, connected, type };
+}
+
+/* ---------------- Algorithm state ---------------- */
+let algo = null;     // {start,current,remaining:[],path:[],order:Map,phase,cands,chosen,log:[],line}
+let timer = null;
+
+function resetAlgo() {
+  stopPlay(); algo = null;
+  $("btnStep").disabled = $("btnPlay").disabled = $("btnReset").disabled = true;
+  $("btnStart").disabled = false;
+  setLine(-1);
+  $("path").innerHTML = '<span style="color:var(--muted);font-weight:400">Press Start to begin.</span>';
+}
+
+function startAlgo() {
+  const a = analyse();
+  if (!edges.length) { banner("Add some edges first", "bad"); return; }
+  if (!a.connected) { banner("Graph is not connected: no Euler path", "bad"); setLine(0); logMsg("The edges do not form one connected piece, so no Euler path exists.", true); return; }
+  if (a.type === "none") { banner(`${a.odd.length} odd-degree vertices: no Euler path`, "bad"); setLine(0);
+    logMsg(`The graph has <b class="bad">${a.odd.length}</b> vertices of odd degree. An Euler path needs 0 or 2, so Fleury's algorithm cannot start.`, true); return; }
+
+  let s = $("startSel").value === "auto" ? null : +$("startSel").value;
+  let note = "";
+  if (a.type === "path") {
+    if (s === null || !a.odd.some(n => n.id === s)) {
+      if (s !== null) note = ` ${nodeById(s).label} has even degree, so we must start at an odd vertex instead.`;
+      s = a.odd[0].id;
+    }
+  } else if (s === null || degreeIn(s, edges) === 0) s = a.withEdges[0].id;
+
+  algo = { start: s, current: s, remaining: edges.slice(), path: [s], order: new Map(),
+           phase: "analyse", cands: [], chosen: null, log: [] };
+  $("log").innerHTML = "";
+  setLine(1);
+  logMsg(`Graph is Eulerian (${a.type === "circuit" ? "all degrees even → <b>Euler circuit</b>" : "exactly two odd vertices → <b>Euler path</b>"}). Start at <b>${nodeById(s).label}</b>.${note}`);
+  $("btnStart").disabled = true;
+  $("btnStep").disabled = $("btnPlay").disabled = $("btnReset").disabled = false;
+  render(); renderPath();
+}
+
+function step() {
+  if (!algo || algo.phase === "done") return;
+  const u = algo.current, U = nodeById(u).label;
+
+  if (algo.phase === "analyse") {
+    const inc = algo.remaining.filter(e => e.u === u || e.v === u);
+    if (!inc.length) { finish(); return; }
+    setLine(2);
+    if (inc.length === 1) {
+      algo.cands = [{ e: inc[0], bridge: false, only: true }];
+      algo.chosen = inc[0];
+      setLine(3);
+      logMsg(`At <b>${U}</b>, only one unused edge: <b>${U}–${nodeById(other(inc[0], u)).label}</b>. Take it (even if it is a bridge).`);
+    } else {
+      const before = reachCount(u, algo.remaining);
+      algo.cands = inc.map(e => {
+        const after = reachCount(u, algo.remaining.filter(x => x !== e));
+        return { e, bridge: after < before, before, after };
+      });
+      algo.chosen = (algo.cands.find(c => !c.bridge) || algo.cands[0]).e;
+      setLine(4);
+      const parts = algo.cands.map(c => {
+        const V = nodeById(other(c.e, u)).label;
+        return c.bridge
+          ? `${U}–${V}: <b class="bad">bridge</b> (reachable ${c.before} → ${c.after})`
+          : `${U}–${V}: <b class="ok">safe</b>`;
+      });
+      logMsg(`At <b>${U}</b>, ${inc.length} unused edges. Bridge test:<br>• ${parts.join("<br>• ")}<br>Choose <b>${U}–${nodeById(other(algo.chosen, u)).label}</b>.`);
+    }
+    algo.phase = "move";
+  } else if (algo.phase === "move") {
+    const e = algo.chosen, v = other(e, u);
+    algo.remaining = algo.remaining.filter(x => x !== e);
+    algo.order.set(e.id, algo.order.size + 1);
+    algo.current = v; algo.path.push(v);
+    algo.cands = []; algo.chosen = null;
+    setLine(5);
+    logMsg(`Traverse <b>${U} → ${nodeById(v).label}</b> (edge #${algo.order.size}) and delete it from the graph. ${algo.remaining.length} edge${algo.remaining.length === 1 ? "" : "s"} left.`);
+    algo.phase = algo.remaining.length ? "analyse" : "end";
+  } else if (algo.phase === "end") finish();
+  render(); renderPath();
+}
+
+function finish() {
+  algo.phase = "done"; stopPlay(); setLine(6);
+  const circuit = algo.path[0] === algo.path[algo.path.length - 1];
+  const seq = algo.path.map(id => nodeById(id).label).join(" → ");
+  logMsg(`<b class="ok">Done!</b> All ${edges.length} edges used exactly once. Euler ${circuit ? "circuit" : "path"}: <b>${seq}</b>`);
+  banner(`Euler ${circuit ? "circuit" : "path"} found!`, "ok");
+  $("btnStep").disabled = $("btnPlay").disabled = true;
+}
+
+function play() {
+  if (!algo || algo.phase === "done") return;
+  $("btnPlay").textContent = "❚❚ Pause";
+  const tick = () => {
+    step();
+    if (algo && algo.phase !== "done") timer = setTimeout(tick, 1100 / +$("speed").value);
+  };
+  tick();
+}
+function stopPlay() { clearTimeout(timer); timer = null; $("btnPlay").textContent = "▶ Auto play"; }
+
+/* ---------------- Rendering ---------------- */
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  parent && parent.appendChild(e); return e;
+}
+let edgeSel = null;   // vertex id selected in edge mode
+
+function render() {
+  Ledges.innerHTML = ""; Ltags.innerHTML = ""; Lnodes.innerHTML = "";
+  const candMap = new Map(algo ? algo.cands.map(c => [c.e.id, c]) : []);
+  const remainingSet = algo ? new Set(algo.remaining.map(e => e.id)) : null;
+
+  for (const e of edges) {
+    const a = nodeById(e.u), b = nodeById(e.v);
+    let cls = "e";
+    const c = candMap.get(e.id);
+    if (algo && !remainingSet.has(e.id)) cls += " used";
+    else if (c) cls += (algo.chosen === e && algo.phase === "move") ? (c.bridge ? " cand-bridge" : " chosen") : (c.bridge ? " cand-bridge" : " cand-ok");
+    el("line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, class: cls }, Ledges);
+    const hit = el("line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, class: "ehit" }, Ledges);
+    hit.addEventListener("click", ev => { if (mode === "delete" && !algo) { edges = edges.filter(x => x !== e); changed(); } });
+
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    if (algo && algo.order.has(e.id)) {
+      const g = el("g", { class: "badge" }, Ltags);
+      el("circle", { cx: mx, cy: my, r: 11 }, g);
+      el("text", { x: mx, y: my + .5 }, g).textContent = algo.order.get(e.id);
+    } else if (c && !c.only) {
+      el("text", { x: mx, y: my - 12, class: "tag " + (c.bridge ? "bad" : "ok") }, Ltags).textContent = c.bridge ? "bridge" : "safe";
+    }
+  }
+
+  for (const n of nodes) {
+    const g = el("g", { class: "v" }, Lnodes);
+    if (algo && algo.current === n.id) {
+      g.classList.add("current");
+      if (algo.phase !== "done") el("circle", { cx: n.x, cy: n.y, r: 22, class: "pulse" }, g);
+    }
+    if (edgeSel === n.id) g.classList.add("sel");
+    if (algo && algo.start === n.id) el("circle", { cx: n.x, cy: n.y, r: 27, class: "ring" }, g);
+    el("circle", { cx: n.x, cy: n.y, r: 20, class: "body" }, g);
+    el("text", { x: n.x, y: n.y + 1, class: "lbl" }, g).textContent = n.label;
+    const d = degreeIn(n.id, algo ? algo.remaining : edges);
+    const dt = el("text", { x: n.x, y: n.y + 38, class: "deg" + (!algo && d % 2 ? " odd" : "") }, g);
+    dt.textContent = (algo ? "left " : "deg ") + d;
+    g.addEventListener("pointerdown", ev => nodeDown(ev, n));
+  }
+}
+
+function renderPath() {
+  if (!algo) return;
+  const p = $("path"); p.innerHTML = "";
+  algo.path.forEach((id, i) => {
+    if (i) { const s = document.createElement("span"); s.className = "arr"; s.textContent = "→"; p.appendChild(s); }
+    const c = document.createElement("span");
+    c.className = "chip" + (i === algo.path.length - 1 && algo.phase !== "done" ? " now" : "");
+    c.textContent = nodeById(id).label; p.appendChild(c);
+  });
+}
+
+function updateCheck() {
+  const a = analyse();
+  $("checkText").innerHTML = `${nodes.length} vertices, ${edges.length} edges · connected: <b>${a.connected ? "yes" : "no"}</b> · odd-degree vertices: <b>${a.odd.length}</b>${a.odd.length ? " (" + a.odd.map(n => n.label).join(", ") + ")" : ""}`;
+  const v = $("verdict");
+  if (!edges.length) { v.textContent = "Add edges to analyse."; v.className = ""; }
+  else if (a.type === "circuit") { v.textContent = "✔ Euler circuit exists (all degrees even)"; v.className = "ok"; }
+  else if (a.type === "path") { v.textContent = `✔ Euler path exists: start at ${a.odd[0].label} or ${a.odd[1].label}`; v.className = "ok"; }
+  else { v.textContent = a.connected ? "✘ Not Eulerian: needs 0 or 2 odd vertices" : "✘ Not Eulerian: graph is disconnected"; v.className = "bad"; }
+  const t = $("degTable");
+  if (!nodes.length) { t.innerHTML = ""; return; }
+  t.innerHTML = "<tr><th>Vertex</th>" + nodes.map(n => `<td><b>${n.label}</b></td>`).join("") + "</tr><tr><th>Degree</th>" +
+    nodes.map(n => { const d = degreeIn(n.id, edges); return `<td class="${d % 2 ? "odd" : ""}">${d}</td>`; }).join("") + "</tr>";
+}
+
+function fillStart() {
+  const s = $("startSel"), prev = s.value;
+  s.innerHTML = '<option value="auto">Auto</option>' + nodes.map(n => `<option value="${n.id}">${n.label}</option>`).join("");
+  if ([...s.options].some(o => o.value === prev)) s.value = prev;
+}
+
+const PSEUDO = [
+  "check: 0 or 2 odd vertices, connected",
+  "u ← odd vertex (else any vertex)",
+  "while u has unused edges:",
+  "  if only one edge: take it",
+  "  else: take u–v that is NOT a bridge",
+  "  delete u–v; u ← v; path += u",
+  "return path"
+];
+$("pseudo").innerHTML = PSEUDO.map((l, i) => `<div data-i="${i}">${l.replace(/</g, "&lt;")}</div>`).join("");
+function setLine(i) { document.querySelectorAll("#pseudo div").forEach(d => d.classList.toggle("hl", +d.dataset.i === i)); }
+
+function logMsg(html, isErr) {
+  const L = $("log");
+  L.querySelectorAll(".entry.last").forEach(e => e.classList.remove("last"));
+  const d = document.createElement("div");
+  d.className = "entry last"; d.innerHTML = html;
+  if (isErr) { L.innerHTML = ""; }
+  L.appendChild(d); L.scrollTop = L.scrollHeight;
+}
+let bannerT;
+function banner(text, kind) {
+  const b = $("banner"); b.textContent = text; b.className = "show " + kind;
+  clearTimeout(bannerT); bannerT = setTimeout(() => b.className = kind, 2600);
+}
+
+/* ---------------- Editing interactions ---------------- */
+let mode = "move", drag = null;
+const HINTS = { move: "Drag vertices to rearrange", vertex: "Click empty space to add a vertex",
+                edge: "Click one vertex, then another, to join them", delete: "Click a vertex or edge to delete it" };
+document.querySelectorAll("button.mode").forEach(b => b.addEventListener("click", () => {
+  mode = b.dataset.mode; edgeSel = null;
+  document.querySelectorAll("button.mode").forEach(x => x.classList.toggle("active", x === b));
+  $("hint").textContent = HINTS[mode]; render();
+}));
+
+function svgPoint(ev) {
+  const p = svg.createSVGPoint(); p.x = ev.clientX; p.y = ev.clientY;
+  return p.matrixTransform(svg.getScreenCTM().inverse());
+}
+function changed() { if (algo) resetAlgo(); render(); updateCheck(); fillStart(); }
+function editLocked() {
+  if (algo && algo.phase !== "done") { banner("Reset the algorithm before editing the graph", "info"); return true; }
+  if (algo) resetAlgo();
+  return false;
+}
+
+function nodeDown(ev, n) {
+  ev.stopPropagation();
+  if (mode === "move") {
+    drag = { n, id: ev.pointerId }; svg.setPointerCapture(ev.pointerId);
+  } else if (mode === "edge") {
+    if (editLocked()) return;
+    if (edgeSel === null) edgeSel = n.id;
+    else if (edgeSel === n.id) edgeSel = null;
+    else { if (!addEdge(edgeSel, n.id)) banner("Those vertices are already joined", "info"); edgeSel = null; changed(); return; }
+    render();
+  } else if (mode === "delete") {
+    if (editLocked()) return;
+    nodes = nodes.filter(x => x !== n); edges = edges.filter(e => e.u !== n.id && e.v !== n.id); changed();
+  }
+}
+svg.addEventListener("pointermove", ev => {
+  if (!drag) return;
+  const p = svgPoint(ev);
+  drag.n.x = Math.max(24, Math.min(776, p.x)); drag.n.y = Math.max(24, Math.min(480, p.y));
+  render();
+});
+svg.addEventListener("pointerup", () => { drag = null; });
+svg.addEventListener("pointerdown", ev => {
+  if (ev.target.classList.contains("ehit")) return;
+  if (mode === "vertex") {
+    if (editLocked()) return;
+    const p = svgPoint(ev); addNode(p.x, p.y); changed();
+  } else if (mode === "edge" && edgeSel !== null) { edgeSel = null; render(); }
+});
+
+/* ---------------- Buttons ---------------- */
+$("preset").addEventListener("change", e => { if (e.target.value) loadPreset(e.target.value); e.target.value = ""; });
+$("btnStart").addEventListener("click", startAlgo);
+$("btnStep").addEventListener("click", () => { stopPlay(); step(); });
+$("btnPlay").addEventListener("click", () => timer ? stopPlay() : play());
+$("btnReset").addEventListener("click", () => { resetAlgo(); render(); $("log").innerHTML = '<div class="entry">Reset. Press <b>Start</b> to run again.</div>'; });
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
+  if (e.key === "ArrowRight" && !$("btnStep").disabled) $("btnStep").click();
+  if (e.key === " " && !$("btnPlay").disabled) { e.preventDefault(); $("btnPlay").click(); }
+});
+
+loadPreset("bridge");
+})();
+</script>
+</body>
+</html>
